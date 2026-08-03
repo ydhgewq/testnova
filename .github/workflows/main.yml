@@ -86,13 +86,49 @@ jobs:
 
       - name: Locate downloaded .deb
         id: finddeb
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
+          set -e
+          echo "=== Searching for downloaded .deb ==="
+
+          # 1) Look in our own downloads dir first
           DEB_PATH=$(find downloads -maxdepth 3 -type f \
-            \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1)
+            \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1 || true)
+
+          # 2) Look in HOME, /root, /home/* Downloads
+          if [ -z "$DEB_PATH" ]; then
+            echo "Not found in ./downloads, trying ~/Downloads"
+            for DIR in "$HOME/Downloads" /root/Downloads /home/runner/Downloads /tmp; do
+              if [ -d "$DIR" ]; then
+                echo "Checking $DIR"
+                find "$DIR" -maxdepth 3 -type f \
+                  \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) || true
+                CANDIDATE=$(find "$DIR" -maxdepth 3 -type f \
+                  \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1 || true)
+                if [ -n "$CANDIDATE" ]; then
+                  DEB_PATH="$CANDIDATE"
+                  break
+                fi
+              fi
+            done
+          fi
+
+          # 3) Last resort: scan whole disk (slow but reliable)
+          if [ -z "$DEB_PATH" ]; then
+            echo "Still not found, doing full scan"
+            DEB_PATH=$(find / -type f \
+              \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) 2>/dev/null | head -n1 || true)
+          fi
 
           if [ -z "$DEB_PATH" ]; then
-            echo "ERROR: No .deb file was downloaded"
-            ls -la downloads || true
+            echo "ERROR: No .deb file was found anywhere"
+            echo "=== $HOME contents ==="
+            ls -la "$HOME" || true
+            echo "=== /tmp contents ==="
+            ls -la /tmp || true
+            echo "=== /root contents ==="
+            ls -la /root || true
             exit 1
           fi
 
