@@ -90,22 +90,18 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -e
-          echo "=== Searching for downloaded .deb ==="
+          echo "=== Looking in ./downloaded_files ==="
+          ls -la downloaded_files
 
-          # 1) Look in our own downloads dir first
-          DEB_PATH=$(find downloads -maxdepth 3 -type f \
+          DEB_PATH=$(find downloaded_files -maxdepth 3 -type f \
             \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1 || true)
 
-          # 2) Look in HOME, /root, /home/* Downloads
           if [ -z "$DEB_PATH" ]; then
-            echo "Not found in ./downloads, trying ~/Downloads"
-            for DIR in "$HOME/Downloads" /root/Downloads /home/runner/Downloads /tmp; do
+            echo "Not found in ./downloaded_files, scanning $HOME"
+            for DIR in "$HOME" "$HOME/Downloads" /root /root/Downloads /tmp; do
               if [ -d "$DIR" ]; then
-                echo "Checking $DIR"
-                find "$DIR" -maxdepth 3 -type f \
-                  \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) || true
-                CANDIDATE=$(find "$DIR" -maxdepth 3 -type f \
-                  \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1 || true)
+                CANDIDATE=$(find "$DIR" -maxdepth 4 -type f \
+                  \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) 2>/dev/null | head -n1 || true)
                 if [ -n "$CANDIDATE" ]; then
                   DEB_PATH="$CANDIDATE"
                   break
@@ -114,28 +110,19 @@ jobs:
             done
           fi
 
-          # 3) Last resort: scan whole disk (slow but reliable)
           if [ -z "$DEB_PATH" ]; then
-            echo "Still not found, doing full scan"
-            DEB_PATH=$(find / -type f \
-              \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) 2>/dev/null | head -n1 || true)
-          fi
-
-          if [ -z "$DEB_PATH" ]; then
-            echo "ERROR: No .deb file was found anywhere"
+            echo "ERROR: No .deb file was downloaded"
             echo "=== $HOME contents ==="
             ls -la "$HOME" || true
             echo "=== /tmp contents ==="
             ls -la /tmp || true
-            echo "=== /root contents ==="
-            ls -la /root || true
             exit 1
           fi
 
           echo "Found deb: $DEB_PATH"
           cp "$DEB_PATH" opera-gx-stable.deb
           echo "deb_path=opera-gx-stable.deb" >> "$GITHUB_OUTPUT"
-
+          
       - name: Install the .deb
         run: |
           ls -la opera-gx-stable.deb
@@ -187,7 +174,7 @@ jobs:
 
           OPERA_PID=$!
           echo "Opera started with PID $OPERA_PID, waiting 10s"
-          sleep 10
+          sleep 20
 
           # Screenshot
           scrot screenshots/opera_gx_screenshot.png
