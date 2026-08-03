@@ -1,0 +1,188 @@
+name: Opera GX - Install, Run, Screenshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  opera-gx-test:
+    runs-on: ubuntu-latest
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget curl gnupg apt-utils libglib2.0-0 libnss3 libatk1.0-0 \
+            libatk-bridge2.0-0 libcups2 libdrm2 libgtk-3-0 libgbm1 libasound2 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxkbcommon0 \
+            libpango-1.0-0 libcairo2 fonts-liberation xdg-utils libvulkan1 \
+            libxshmfence1 xvfb scrot x11-utils dbus-x11 procps \
+            libx11-xcb1 libxcb1 libxext6 libxss1 libxtst6 ca-certificates
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install SeleniumBase
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install seleniumbase
+
+      - name: Install Brave browser
+        run: |
+          curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-core.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/brave-browser-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+          sudo apt-get update
+          sudo apt-get install -y brave-browser
+
+      - name: Install ChromeDriver (for SeleniumBase)
+        run: |
+          google-chrome --version 2>/dev/null || true
+          seleniumbase install chromedriver latest
+
+      - name: Set up download dir
+        run: |
+          mkdir -p downloads screenshots
+
+      - name: Download Opera GX .deb with SeleniumBase + Brave
+        env:
+          SB_DOWNLOAD_DIR: ${{ github.workspace }}/downloads
+        run: |
+          python <<'PY'
+          import os
+          from seleniumbase import SB
+
+          download_dir = os.environ["SB_DOWNLOAD_DIR"]
+          os.makedirs(download_dir, exist_ok=True)
+
+          download_dir = os.path.abspath(download_dir)
+
+          with SB(
+              browser="brave",
+              headless=True,
+              download_folder=download_dir,
+              uc=True,
+          ) as sb:
+              # 1) Visit promo page
+              sb.open("https://www.twitch.tv/brutalles")
+              sb.wait(5)
+              sb.open("https://operagx.gg/brutallesaff")
+              sb.wait(5)
+
+              # 2) Visit Opera GX Linux download page
+              sb.open("https://download.opera.com/download/get/?partner=www&opsys=Linux&product=Opera+GX")
+              sb.wait(5)
+
+              # 3) Try to find a direct .deb link on the page
+              href = sb.get_attribute("a[href$='.deb']", "href")
+              if not href:
+                  # Fallback: find any link that contains opera-gx- and ends with .deb
+                  candidates = sb.execute_script("""
+                      () => Array.from(document.querySelectorAll("a"))
+                          .map(a => a.href)
+                          .filter(h => h.includes("opera-gx-") && h.endsWith(".deb"))
+                  """)
+                  if candidates:
+                      href = candidates[0]
+
+              if not href:
+                  raise Exception("Could not find a .deb download link on the Opera page")
+
+              print(f"Downloading: {href}")
+              sb.open(href)
+              sb.wait(5)
+          PY
+
+      - name: Locate downloaded .deb
+        id: finddeb
+        run: |
+          DEB_PATH=$(find downloads -maxdepth 3 -type f \
+            \( -name "opera-gx-*.deb" -o -name "opera_*.deb" \) | head -n1)
+
+          if [ -z "$DEB_PATH" ]; then
+            echo "ERROR: No .deb file was downloaded"
+            ls -la downloads || true
+            exit 1
+          fi
+
+          echo "Found deb: $DEB_PATH"
+          cp "$DEB_PATH" opera-gx-stable.deb
+          echo "deb_path=opera-gx-stable.deb" >> "$GITHUB_OUTPUT"
+
+      - name: Install the .deb
+        run: |
+          ls -la opera-gx-stable.deb
+          sudo apt-get update
+          sudo dpkg -i opera-gx-stable.deb || (sudo apt-get update && sudo apt-get install -f -y)
+
+      - name: Run Opera GX and capture screenshot
+        run: |
+          # Start Xvfb
+          Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+          XVFB_PID=$!
+          sleep 2
+          export DISPLAY=:99
+
+          # Start dbus
+          eval $(dbus-launch --sh-syntax)
+
+          # Find the opera-gx binary
+          OPERA_BIN=""
+          for candidate in /usr/bin/opera-gx /usr/bin/opera /usr/lib/x86_64-linux-gnu/opera-gx/opera-gx /usr/lib/opera-gx/opera-gx; do
+            if [ -x "$candidate" ]; then
+              OPERA_BIN="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$OPERA_BIN" ]; then
+            OPERA_BIN=$(find / -name "opera*" -type f -executable 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$OPERA_BIN" ]; then
+            echo "ERROR: could not find opera-gx binary"
+            dpkg -L opera-gx-stable 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Using binary: $OPERA_BIN"
+
+          # Launch
+          "$OPERA_BIN" \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-software-rasterizer \
+            --disable-dev-shm-usage \
+            --no-first-run \
+            --no-default-browser-check \
+            --window-size=1920,1080 \
+            "https://www.google.com" &
+
+          OPERA_PID=$!
+          echo "Opera started with PID $OPERA_PID, waiting 10s"
+          sleep 10
+
+          # Screenshot
+          scrot screenshots/opera_gx_screenshot.png
+
+          # Cleanup
+          kill $OPERA_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+
+          ls -la screenshots/
+
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: opera-gx-screenshot
+          path: screenshots/opera_gx_screenshot.png
+          if-no-files-found: error
