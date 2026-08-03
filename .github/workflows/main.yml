@@ -68,8 +68,7 @@ jobs:
 
           with SB(
               browser="brave",
-              headless=True,
-              download_folder=download_dir,
+              headless=False,
               uc=True,
           ) as sb:
               # 1) Visit promo page
