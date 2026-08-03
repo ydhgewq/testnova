@@ -70,17 +70,18 @@ jobs:
               browser="brave",
               headless=False,
               uc=True,
+              chromium_arg=f"--download-dir={download_dir}",
           ) as sb:
               # 1) Visit promo page
               sb.open("https://www.twitch.tv/brutalles")
               sb.wait(5)
               sb.open("https://operagx.gg/brutallesaff")
               sb.wait(5)
-
+              sb.click("a.os-linux")
               # 2) Visit Opera GX Linux download page
-              sb.open("https://download.opera.com/download/get/?partner=www&opsys=Linux&product=Opera+GX")
+              #sb.open("https://download.opera.com/download/get/?partner=www&opsys=Linux&product=Opera+GX")
               sb.wait(5)
-              sb.wait(65)
+              sb.wait(85)
           PY
 
       - name: Locate downloaded .deb
