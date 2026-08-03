@@ -80,25 +80,7 @@ jobs:
               # 2) Visit Opera GX Linux download page
               sb.open("https://download.opera.com/download/get/?partner=www&opsys=Linux&product=Opera+GX")
               sb.wait(5)
-
-              # 3) Try to find a direct .deb link on the page
-              href = sb.get_attribute("a[href$='.deb']", "href")
-              if not href:
-                  # Fallback: find any link that contains opera-gx- and ends with .deb
-                  candidates = sb.execute_script("""
-                      () => Array.from(document.querySelectorAll("a"))
-                          .map(a => a.href)
-                          .filter(h => h.includes("opera-gx-") && h.endsWith(".deb"))
-                  """)
-                  if candidates:
-                      href = candidates[0]
-
-              if not href:
-                  raise Exception("Could not find a .deb download link on the Opera page")
-
-              print(f"Downloading: {href}")
-              sb.open(href)
-              sb.wait(5)
+              sb.wait(65)
           PY
 
       - name: Locate downloaded .deb
